@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#10152f"><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Neon Pong – Online</title>
+<style>
+:root{color-scheme:dark;--bg:#10152f;--panel:#1a2144;--cyan:#42e8e0;--pink:#ff5ca8;--yellow:#ffe66d}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 20% 0%,#27336c 0%,var(--bg) 55%);color:white;font-family:system-ui,-apple-system,sans-serif;min-height:100vh;display:flex;justify-content:center}
+main{width:min(100%,620px);padding:22px 16px 30px}.brand{text-align:center;margin:10px 0 18px}.brand h1{font-size:clamp(30px,8vw,46px);margin:0;letter-spacing:-2px;background:linear-gradient(90deg,var(--cyan),#a78bfa,var(--pink));background-clip:text;color:transparent}.brand p{color:#bdc7ee;margin:4px 0}
+.card{background:#1a2144dd;border:1px solid #6573b966;border-radius:22px;padding:16px;margin:12px 0;box-shadow:0 12px 35px #05091d66}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:130px}button,input{font:inherit;border-radius:14px;padding:13px;border:1px solid #6473b8;background:#111936;color:white}button{font-weight:750;cursor:pointer;background:linear-gradient(110deg,#00bfc6,#765cf6);border:0}button.secondary{background:#303b69}button:disabled{opacity:.5}
+input{width:100%;text-align:center;text-transform:uppercase}.hint,.status{color:#c2ccef;font-size:14px;line-height:1.45}.status{margin-top:10px;min-height:22px}.code{font-size:25px;font-weight:850;letter-spacing:4px;color:var(--yellow);text-align:center;margin:10px}
+.score{display:flex;justify-content:space-around;font-size:22px;font-weight:800}.score span:first-child{color:var(--cyan)}.score span:last-child{color:var(--pink)}
+canvas{display:block;width:100%;height:auto;aspect-ratio:3/4;border-radius:18px;background:linear-gradient(150deg,#10172f,#171d3e);border:1px solid #6573b966;touch-action:none}
+.controls{display:flex;justify-content:space-between;gap:10px;color:#bdc7ee;font-size:13px;margin-top:8px}.hidden{display:none!important}
+</style>
+</head>
+<body><main>
+<header class="brand"><h1>NEON PONG</h1><p>Spiele live mit Freunden – jeder auf seinem iPhone 🏓</p></header>
+<section class="card" id="lobby">
+ <div class="row"><button id="host">Spiel erstellen</button><button class="secondary" id="joinToggle">Mit Code beitreten</button></div>
+ <div id="joinBox" class="hidden" style="margin-top:12px"><input id="roomInput" maxlength="6" placeholder="SPIELCODE"><button id="join" style="width:100%;margin-top:8px">Beitreten</button></div>
+ <div id="roomInfo" class="hidden"><p class="hint">Teile diesen Code mit deinem Mitspieler:</p><div class="code" id="roomCode"></div><p class="hint">Warte, bis dein Mitspieler beitritt …</p></div>
+ <div class="status" id="status">Erstelle eine Runde oder tritt mit einem Code bei.</div>
+</section>
+<section class="card hidden" id="game">
+ <div class="score"><span>DU <b id="leftScore">0</b></span><span><b id="rightScore">0</b> GAST</span></div>
+ <canvas id="court" width="600" height="800"></canvas>
+ <div class="controls"><span>← Dein Schläger: Finger bewegen</span><span>Erster bis 5 Punkte</span></div>
+ <button id="again" class="secondary" style="width:100%;margin-top:12px">Neue Runde</button>
+</section>
+<p class="hint" style="text-align:center">Beide brauchen Internet. Für den ersten Start muss die Seite in Safari geöffnet werden.</p>
+</main>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+const $=id=>document.getElementById(id), canvas=$('court'),ctx=canvas.getContext('2d');
+let peer=null,conn=null,isHost=false,ready=false,raf=0,last=0;
+let state={x:300,y:400,vx:4,vy:3,left:0,right:0,lp:400,rp:400,run:false};
+const W=600,H=800,ph=115,pw=15;
+function say(s){$('status').textContent=s}
+function showGame(){ $('lobby').classList.add('hidden');$('game').classList.remove('hidden');}
+function setupPeer(id){return new Promise((resolve,reject)=>{peer=new Peer(id);peer.on('open',resolve);peer.on('error',e=>{say('Verbindung fehlgeschlagen: '+e.type+'. Bitte erneut versuchen.');reject(e)});});}
+function startHostLoop(){if(raf)cancelAnimationFrame(raf);state.run=true;last=0;raf=requestAnimationFrame(loop);}
+function loop(t){if(!state.run)return;let dt=last?Math.min((t-last)/16.67,2):1;last=t;
+ state.x+=state.vx*dt;state.y+=state.vy*dt;
+ if(state.y<12||state.y>H-12)state.vy*=-1;
+ if(state.x<38&&Math.abs(state.y-state.lp)<ph/2+12){state.vx=Math.abs(state.vx)*1.04;state.x=38;state.vy+=(state.y-state.lp)*.025;}
+ if(state.x>W-38&&Math.abs(state.y-state.rp)<ph/2+12){state.vx=-Math.abs(state.vx)*1.04;state.x=W-38;state.vy+=(state.y-state.rp)*.025;}
+ if(state.x<0){state.right++;point()} if(state.x>W){state.left++;point()}
+ draw();if(conn&&conn.open)conn.send({type:'state',state});raf=requestAnimationFrame(loop);}
+function point(){if(state.left>=5||state.right>=5){state.run=false;say(state.left>=5?'Du hast gewonnen! 🎉':'Dein Mitspieler hat gewonnen!');}state.x=300;state.y=400;state.vx=state.left>state.right?4:-4;state.vy=3;}
+function draw(){ctx.clearRect(0,0,W,H);let g=ctx.createLinearGradient(0,0,W,H);g.addColorStop(0,'#111a39');g.addColorStop(1,'#21153f');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ctx.setLineDash([12,16]);ctx.strokeStyle='#7482b966';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(W/2,0);ctx.lineTo(W/2,H);ctx.stroke();ctx.setLineDash([]);
+function glow(color){ctx.shadowColor=color;ctx.shadowBlur=24;ctx.fillStyle=color;}
+glow('#42e8e0');ctx.fillRect(24,state.lp-ph/2,pw,ph);glow('#ff5ca8');ctx.fillRect(W-39,state.rp-ph/2,pw,ph);
+glow('#ffe66d');ctx.beginPath();ctx.arc(state.x,state.y,13,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
+$('leftScore').textContent=state.left;$('rightScore').textContent=state.right;}
+function movePaddle(e){let r=canvas.getBoundingClientRect(),y=(e.clientY-r.top)/r.height*H;y=Math.max(ph/2,Math.min(H-ph/2,y));if(isHost)state.lp=y;else if(conn&&conn.open)conn.send({type:'paddle',y});}
+canvas.addEventListener('pointermove',movePaddle);canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);movePaddle(e)});
+$('host').onclick=async()=>{try{say('Erstelle deine Spielrunde …');let code=Math.random().toString(36).slice(2,8).toUpperCase();await setupPeer('neonpong-'+code.toLowerCase());isHost=true;$('roomInfo').classList.remove('hidden');$('roomCode').textContent=code;say('Deine Runde ist bereit. Warte auf den Mitspieler.');peer.on('connection',c=>{conn=c;c.on('open',()=>{ready=true;showGame();say('Verbunden! Du bist links. Viel Spaß!');conn.send({type:'welcome'});startHostLoop()});c.on('data',d=>{if(d.type==='paddle')state.rp=d.y;if(d.type==='restart'){state={x:300,y:400,vx:4,vy:3,left:0,right:0,lp:400,rp:400,run:false};startHostLoop()}})});}catch(e){}};
+$('joinToggle').onclick=()=>$('joinBox').classList.toggle('hidden');
+$('join').onclick=async()=>{let code=$('roomInput').value.trim().toLowerCase();if(!code)return say('Bitte gib den Spielcode ein.');try{say('Verbinde mit der Spielrunde …');await setupPeer();isHost=false;conn=peer.connect('neonpong-'+code);conn.on('open',()=>{ready=true;showGame();say('Verbunden! Du bist rechts. Viel Spaß!')});conn.on('data',d=>{if(d.type==='welcome')say('Spiel gestartet! Du bist rechts.');if(d.type==='state'){state=d.state;draw()}})}catch(e){}};
+$('again').onclick=()=>{if(isHost){state={x:300,y:400,vx:4,vy:3,left:0,right:0,lp:400,rp:400,run:false};startHostLoop()}else if(conn&&conn.open)conn.send({type:'restart'});say('Neue Runde gestartet.');};
+draw();
+if('serviceWorker' in navigator)navigator.serviceWorker.register('./service-worker.js').catch(()=>{});\n</script></body></html>
